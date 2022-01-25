@@ -2,37 +2,46 @@ pragma solidity >=0.8.0;
 
 import "@rari-capital/solmate/src/tokens/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 import "@openzeppelin/contracts/utils/cryptography/draft-EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-contract DropYourENS is ERC1155, EIP712, IERC2981, Ownable {
-  mapping(uint256 => string) uris;
+contract DropYourENS is ERC1155, EIP712, Ownable {
+  mapping(uint256 => string) public uris;
+  mapping(uint256 => uint256) public totalSuuply;
+  mapping(uint256 => uint256) public totalMinted;
 
   bytes32 constant public MINT_CALL_HASH_TYPE = keccak256("mint(address receiver, uint256 id");
 
   address public immutable _signer;
 
   address private _recipient;
+
+  event PermanentURI(string _value, uint256 indexed _id);
   
   constructor(address signer, address recipient) EIP712("DropYourENS", "1") {
     _signer = signer;
     _recipient = recipient;
   }
 
-  function setURI(uint256 id, string memory tokenURI) external onlyOwner {
+  function setURI(uint256 id, uint256 hardcap, string memory tokenURI) external onlyOwner {
     uris[id] = tokenURI;
+    totalSuuply[id] = hardcap;
     emit URI(tokenURI, id);
+    emit PermanentURI(tokenURI, id);
   }
 
-  function setURIBatch(uint256[] memory ids, string[] memory tokenURIs) external onlyOwner {
+  function setURIBatch(uint256[] memory ids, uint256[] memory hardcap, string[] memory tokenURIs) external onlyOwner {
     uint256 idsLength = ids.length;
     uint256 tokenURIsLength = tokenURIs.length;
+    uint256 hardcapLength = hardcap.length;
     require(idsLength == tokenURIsLength, "LENGTH_MISMATCH");
+    require(tokenURIsLength == hardcapLength, "LENGTH_MISMATCH");
     for (uint256 i = 0; i < idsLength; ) {
       uint256 id = ids[i];
       uris[id] = tokenURIs[i];
+      totalSuuply[id] = hardcap[i];
       emit URI(tokenURIs[i], id);
+      emit PermanentURI(tokenURIs[i], id);
       unchecked {
         i++;
       }
@@ -41,12 +50,14 @@ contract DropYourENS is ERC1155, EIP712, IERC2981, Ownable {
 
   function mint(uint256 id, uint8 v, bytes32 r, bytes32 s) external {
     require(bytes(uris[id]).length != 0, "INVALID TOKEN ID"); // double check to make sure
+    require(totalMinted[id] < totalSuuply[id], "MAX REACHED");
     bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32",
       ECDSA.toTypedDataHash(_domainSeparatorV4(),
       keccak256(abi.encode(MINT_CALL_HASH_TYPE, msg.sender, id))
     )));
     require(ecrecover(digest, v, r, s) == _signer, "DropYourENS: Invalid signer");
     _mint(msg.sender, id, 1, new bytes(0));
+    totalMinted[id] += 1;
   }
 
   function uri(uint256 id) public view override returns (string memory tokenURI) {
