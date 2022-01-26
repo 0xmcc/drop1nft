@@ -6,9 +6,9 @@ import "@rari-capital/solmate/src/tokens/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
-import "hardhat/console.sol";
+import "./contentmixin.sol";
 
-contract DropYourENS is ERC1155, Ownable {
+contract DropYourENS is ERC1155, ContextMixin, Ownable {
   struct token {
     bytes32 rootHash;
     string uri;
@@ -76,7 +76,7 @@ contract DropYourENS is ERC1155, Ownable {
     tokens[id].isWhitelistPeriod = false;
   }
 
-  function giftWitches(uint256 id, address[] calldata addresses) external onlyOwner {
+  function gift(uint256 id, address[] calldata addresses) external onlyOwner {
     uint256 numToGift = addresses.length;
     require(tokens[id].totalMinted + numToGift <= tokens[id].totalSupply, "MAX REACHED");
     for (uint256 i = 0; i < numToGift; ) {
@@ -129,6 +129,10 @@ contract DropYourENS is ERC1155, Ownable {
            interfaceId == 0xd9b67a26 || // ERC165 Interface ID for ERC1155
            interfaceId == 0x0e89341c || // ERC165 Interface ID for ERC1155MetadataURI
            interfaceId == 0x2a55205a;   // ERC165 Interface ID for ERC2981
+  }
+
+  function _msgSender() internal override view returns (address) {
+    return ContextMixin.msgSender();
   }
 
 }
