@@ -2,44 +2,48 @@ pragma solidity >=0.8.0;
 
 import "@rari-capital/solmate/src/tokens/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/cryptography/draft-EIP712.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
-contract DropYourENS is ERC1155, EIP712, Ownable {
+import "hardhat/console.sol";
+
+contract DropYourENS is ERC1155, Ownable {
   mapping(uint256 => string) public uris;
-  mapping(uint256 => uint256) public totalSuuply;
+  mapping(uint256 => bytes32) public rootHashes;
+  mapping(address => bool) public whitelistClaimed;
+  mapping(uint256 => uint256) public totalSupply;
   mapping(uint256 => uint256) public totalMinted;
-
-  bytes32 constant public MINT_CALL_HASH_TYPE = keccak256("mint(address receiver, uint256 id");
-
-  address public immutable _signer;
-
   address private _recipient;
 
   event PermanentURI(string _value, uint256 indexed _id);
   
-  constructor(address signer, address recipient) EIP712("DropYourENS", "1") {
-    _signer = signer;
+  constructor(address recipient) {
     _recipient = recipient;
   }
 
-  function setURI(uint256 id, uint256 hardcap, string memory tokenURI) external onlyOwner {
+  function setURI(uint256 id, uint256 hardcap, bytes32 rootHash, string calldata tokenURI) external onlyOwner {
+    require(bytes(uris[id]).length == 0, "TOKEN ID EXISTS");
     uris[id] = tokenURI;
-    totalSuuply[id] = hardcap;
+    totalSupply[id] = hardcap;
+    rootHashes[id] = rootHash;
     emit URI(tokenURI, id);
     emit PermanentURI(tokenURI, id);
   }
 
-  function setURIBatch(uint256[] memory ids, uint256[] memory hardcap, string[] memory tokenURIs) external onlyOwner {
+  function setURIBatch(uint256[] calldata ids, uint256[] calldata hardcap, bytes32[] calldata rootHash, string[] calldata tokenURIs) external onlyOwner {
     uint256 idsLength = ids.length;
     uint256 tokenURIsLength = tokenURIs.length;
     uint256 hardcapLength = hardcap.length;
+    uint256 rootHashLength = rootHash.length;
     require(idsLength == tokenURIsLength, "LENGTH_MISMATCH");
     require(tokenURIsLength == hardcapLength, "LENGTH_MISMATCH");
+    require(hardcapLength == rootHashLength , "LENGTH_MISMATCH");
+
     for (uint256 i = 0; i < idsLength; ) {
       uint256 id = ids[i];
+      require(bytes(uris[id]).length == 0, "TOKEN ID EXISTS");
       uris[id] = tokenURIs[i];
-      totalSuuply[id] = hardcap[i];
+      totalSupply[id] = hardcap[i];
+      rootHashes[id] = rootHash[i];
       emit URI(tokenURIs[i], id);
       emit PermanentURI(tokenURIs[i], id);
       unchecked {
@@ -48,15 +52,16 @@ contract DropYourENS is ERC1155, EIP712, Ownable {
     }
   }
 
-  function mint(uint256 id, uint8 v, bytes32 r, bytes32 s) external {
+  function mint(uint256 id, bytes32[] calldata proof) external {
     require(bytes(uris[id]).length != 0, "INVALID TOKEN ID"); // double check to make sure
-    require(totalMinted[id] < totalSuuply[id], "MAX REACHED");
-    bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32",
-      ECDSA.toTypedDataHash(_domainSeparatorV4(),
-      keccak256(abi.encode(MINT_CALL_HASH_TYPE, msg.sender, id))
-    )));
-    require(ecrecover(digest, v, r, s) == _signer, "DropYourENS: Invalid signer");
-    _mint(msg.sender, id, 1, new bytes(0));
+    require(totalMinted[id] < totalSupply[id], "MAX REACHED");
+    require(!whitelistClaimed[msg.sender], "ALREADY CLAIMED");
+
+    bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
+    require(MerkleProof.verify(proof, rootHashes[id], leaf), "INVALID PROOF");
+    // _mint(msg.sender, id, 1, new bytes(0));
+
+    // whitelistClaimed[msg.sender] = true;
     totalMinted[id] += 1;
   }
 
@@ -66,7 +71,7 @@ contract DropYourENS is ERC1155, EIP712, Ownable {
 
   // Maintain flexibility to modify royalties recipient (could also add basis points).
   function _setRoyalties(address newRecipient) internal {
-    require(newRecipient != address(0), "Royalties: new recipient is the zero address");
+    require(newRecipient != address(0), "INVALID RECIPIENT");
     _recipient = newRecipient;
   }
 
@@ -75,17 +80,15 @@ contract DropYourENS is ERC1155, EIP712, Ownable {
   }
 
   // EIP2981 standard royalties return.
-  function royaltyInfo(uint256, uint256 _salePrice) external view returns (address receiver, uint256 royaltyAmount)
-  {
+  function royaltyInfo(uint256, uint256 _salePrice) external view returns (address receiver, uint256 royaltyAmount) {
     return (_recipient, (_salePrice * 1000) / 10000);
   }
 
   function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
-      return
-          interfaceId == 0x01ffc9a7 || // ERC165 Interface ID for ERC165
-          interfaceId == 0xd9b67a26 || // ERC165 Interface ID for ERC1155
-          interfaceId == 0x0e89341c || // ERC165 Interface ID for ERC1155MetadataURI
-          interfaceId == 0x2a55205a;   // ERC165 Interface ID for ERC2981
+    return interfaceId == 0x01ffc9a7 || // ERC165 Interface ID for ERC165
+           interfaceId == 0xd9b67a26 || // ERC165 Interface ID for ERC1155
+           interfaceId == 0x0e89341c || // ERC165 Interface ID for ERC1155MetadataURI
+           interfaceId == 0x2a55205a;   // ERC165 Interface ID for ERC2981
   }
 
 }
