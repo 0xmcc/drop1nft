@@ -19,8 +19,6 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
     uint256 totalMinted;
     uint256 royaltyAmount; //multiply the desired percentage by * 100
     bool isWhitelistPeriod;
- 
- 
     mapping(address => bool) whitelistClaimed;
   }
   mapping(uint256 => token) public tokens;
