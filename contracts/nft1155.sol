@@ -76,6 +76,18 @@ contract DropYourENS is ERC1155, Ownable {
     tokens[id].isWhitelistPeriod = false;
   }
 
+  function giftWitches(uint256 id, address[] calldata addresses) external onlyOwner {
+    uint256 numToGift = addresses.length;
+    require(tokens[id].totalMinted + numToGift <= tokens[id].totalSupply, "MAX REACHED");
+    for (uint256 i = 0; i < numToGift; ) {
+      _mint(addresses[i], id, 1, new bytes(0));
+      unchecked {
+        i++;
+      }
+    }
+    tokens[id].totalMinted += numToGift;
+  }
+
   function mint(uint256 id, bytes32[] calldata proof) external payable {
     require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
     require(!tokens[id].whitelistClaimed[msg.sender], "ALREADY CLAIMED");
