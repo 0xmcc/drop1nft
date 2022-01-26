@@ -13,7 +13,7 @@ describe("MintMax", function () {
     const leafNodes = addrs.map(wallet => keccak256(wallet.address));
     const merkleTree = new MerkleTree(leafNodes, keccak256, { sortPairs: true });
     const root = merkleTree.getRoot();
-    await dye.setURI(1, 2, root, "test uri");
+    await dye.setURI(1, 2, root, 10000, "test uri");
 
     // test standard mint
     for (i = 0; i < 2; i++) {

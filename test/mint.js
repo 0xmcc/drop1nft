@@ -13,11 +13,11 @@ describe("Mint", function () {
     const leafNodes = addrs.map(wallet => keccak256(wallet.address));
     const merkleTree = new MerkleTree(leafNodes, keccak256, { sortPairs: true });
     const root = merkleTree.getRoot();
-    await dye.setURI(1, addrs.length, root, "test uri");
+    await dye.setURI(1, addrs.length, root, 10000, "test uri");
     expect(await dye.uri(1)).to.equal("test uri");
 
     // test minting twice
-    await expect(dye.setURI(1, 10, root, "test uri")).to.be.revertedWith("TOKEN ID EXISTS");
+    await expect(dye.setURI(1, 10, root, 10000, "test uri")).to.be.revertedWith("TOKEN ID EXISTS");
 
     // test non whitelisted address can't claim
     const invalidProof = [

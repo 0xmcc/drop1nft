@@ -9,11 +9,16 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "hardhat/console.sol";
 
 contract DropYourENS is ERC1155, Ownable {
-  mapping(uint256 => string) public uris;
-  mapping(uint256 => bytes32) public rootHashes;
-  mapping(uint256 => uint256) public totalSupply;
-  mapping(uint256 => uint256) public totalMinted;
-  mapping(uint256 => mapping(address => bool)) public whitelistClaimed;
+  struct token {
+    bytes32 rootHash;
+    string uri;
+    uint256 salePrice;
+    uint256 totalSupply;
+    uint256 totalMinted;
+    bool isWhitelistPeriod;
+    mapping(address => bool) whitelistClaimed;
+  }
+  mapping(uint256 => token) public tokens;
   address private _recipient;
 
   event PermanentURI(string _value, uint256 indexed _id);
@@ -22,53 +27,74 @@ contract DropYourENS is ERC1155, Ownable {
     _recipient = recipient;
   }
 
-  function setURI(uint256 id, uint256 hardcap, bytes32 rootHash, string calldata tokenURI) external onlyOwner {
-    require(bytes(uris[id]).length == 0, "TOKEN ID EXISTS");
-    uris[id] = tokenURI;
-    totalSupply[id] = hardcap;
-    rootHashes[id] = rootHash;
+  function setURI(uint256 id, uint256 totalSupply, bytes32 rootHash, uint256 salePrice, string calldata tokenURI) external onlyOwner {
+    require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
+    require(totalSupply > 0, "TOKEN ID EXISTS");
+    tokens[id].totalSupply = totalSupply;
+    tokens[id].rootHash = rootHash;
+    tokens[id].salePrice = salePrice;
+    tokens[id].uri = tokenURI;
+    tokens[id].isWhitelistPeriod = true;
     emit URI(tokenURI, id);
     emit PermanentURI(tokenURI, id);
   }
 
-  function setURIBatch(uint256[] calldata ids, uint256[] calldata hardcap, bytes32[] calldata rootHash, string[] calldata tokenURIs) external onlyOwner {
+  function setURIBatch(
+      uint256[] calldata ids,
+      uint256[] calldata caps,
+      uint256[] calldata salePrices,
+      bytes32[] calldata rootHashes,
+      string[] calldata uris) external onlyOwner {
     uint256 idsLength = ids.length;
-    uint256 tokenURIsLength = tokenURIs.length;
-    uint256 hardcapLength = hardcap.length;
-    uint256 rootHashLength = rootHash.length;
-    require(idsLength == tokenURIsLength, "LENGTH_MISMATCH");
-    require(tokenURIsLength == hardcapLength, "LENGTH_MISMATCH");
-    require(hardcapLength == rootHashLength , "LENGTH_MISMATCH");
+    {
+      uint256 capsLength = caps.length;
+      uint256 salePricesLength = salePrices.length;
+      uint256 rootHashesLength = rootHashes.length;
+      uint256 urisLength = uris.length;
+      require(idsLength == capsLength, "LENGTH_MISMATCH");
+      require(capsLength == salePricesLength, "LENGTH_MISMATCH");
+      require(salePricesLength == rootHashesLength, "LENGTH_MISMATCH");
+      require(rootHashesLength == urisLength, "LENGTH_MISMATCH");
+    }
 
     for (uint256 i = 0; i < idsLength; ) {
       uint256 id = ids[i];
-      require(bytes(uris[id]).length == 0, "TOKEN ID EXISTS");
-      uris[id] = tokenURIs[i];
-      totalSupply[id] = hardcap[i];
-      rootHashes[id] = rootHash[i];
-      emit URI(tokenURIs[i], id);
-      emit PermanentURI(tokenURIs[i], id);
+      require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
+      tokens[id].totalSupply = caps[i];
+      tokens[id].rootHash = rootHashes[i];
+      tokens[id].salePrice = salePrices[i];
+      tokens[id].uri = uris[i];
+      emit URI(uris[i], id);
+      emit PermanentURI(uris[i], id);
       unchecked {
         i++;
       }
     }
   }
 
-  function mint(uint256 id, bytes32[] calldata proof) external {
-    require(bytes(uris[id]).length != 0, "INVALID TOKEN ID"); // double check to make sure
-    require(!whitelistClaimed[id][msg.sender], "ALREADY CLAIMED");
-    require(totalMinted[id] < totalSupply[id], "MAX REACHED");
+  function endWhitelistPeriod(uint256 id) external onlyOwner {
+    tokens[id].isWhitelistPeriod = false;
+  }
 
-    bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
-    require(MerkleProof.verify(proof, rootHashes[id], leaf), "INVALID PROOF");
+  function mint(uint256 id, bytes32[] calldata proof) external payable {
+    require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
+    require(!tokens[id].whitelistClaimed[msg.sender], "ALREADY CLAIMED");
+    require(tokens[id].totalMinted < tokens[id].totalSupply, "MAX REACHED");
+
+    if (tokens[id].isWhitelistPeriod) {
+      bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
+      require(MerkleProof.verify(proof, tokens[id].rootHash, leaf), "INVALID PROOF");
+      tokens[id].whitelistClaimed[msg.sender] = true;
+    } else {
+      require(msg.value == tokens[id].salePrice, "INCORRECT ETH SENT");
+    }
+
     _mint(msg.sender, id, 1, new bytes(0));
-
-    whitelistClaimed[id][msg.sender] = true;
-    totalMinted[id] += 1;
+    tokens[id].totalMinted += 1;
   }
 
   function uri(uint256 id) public view override returns (string memory tokenURI) {
-    tokenURI = uris[id];
+    tokenURI = tokens[id].uri;
   }
 
   // Maintain flexibility to modify royalties recipient (could also add basis points).
