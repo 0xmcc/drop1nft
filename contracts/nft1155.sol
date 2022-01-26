@@ -5,10 +5,11 @@ pragma solidity >=0.8.0;
 import "@rari-capital/solmate/src/tokens/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 
 import "./contentmixin.sol";
 
-contract DropYourENS is ERC1155, ContextMixin, Ownable {
+contract DropYourENS is ERC1155, IERC2981, ContextMixin,  Ownable {
   struct token {
     bytes32 rootHash;
     string uri;
@@ -19,31 +20,49 @@ contract DropYourENS is ERC1155, ContextMixin, Ownable {
     mapping(address => bool) whitelistClaimed;
   }
   mapping(uint256 => token) public tokens;
-  address private _recipient;
+  address private _royaltyRecipient;
 
   event PermanentURI(string _value, uint256 indexed _id);
   
   // ============ ACCESS CONTROL/SANITY MODIFIERS ============
 
-  modifier tokenIdExists(uint256 _id) {
+  modifier tokenIdDoesNotExist(uint256 _id) {
     require(tokens[_id].totalSupply == 0, "TOKEN ID EXISTS");
+    _;
+  }
+  modifier validTokenId(uint256 id) {
+    require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
+    _;
+  }
+  modifier canMintToken(uint256 id) {
+    require(tokens[id].totalMinted < tokens[id].totalSupply, "MAX REACHED");
     _;
   }
 
   constructor(address recipient) {
-    _recipient = recipient;
+    _royaltyRecipient = recipient;
   }
 
-  function setURI(uint256 id, uint256 totalSupply, bytes32 rootHash, uint256 salePrice, string calldata tokenURI) external onlyOwner {
-    require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
-    require(totalSupply > 0, "TOKEN ID EXISTS");
-    tokens[id].totalSupply = totalSupply;
-    tokens[id].rootHash = rootHash;
-    tokens[id].salePrice = salePrice;
-    tokens[id].uri = tokenURI;
-    tokens[id].isWhitelistPeriod = true;
-    emit URI(tokenURI, id);
-    emit PermanentURI(tokenURI, id);
+  function setURI(
+        uint256 id, 
+        uint256 totalSupply, 
+        bytes32 rootHash, 
+        uint256 salePrice, 
+        string calldata tokenURI
+  ) 
+        external 
+        tokenIdDoesNotExist(id)
+        onlyOwner 
+  {
+       // require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
+        require(totalSupply > 0, "NEED AT LEAST ONE TOKEN");
+        tokens[id].totalSupply = totalSupply;
+        tokens[id].rootHash = rootHash;
+        tokens[id].salePrice = salePrice;
+        tokens[id].uri = tokenURI;
+        tokens[id].isWhitelistPeriod = true;
+        emit URI(tokenURI, id);
+        emit PermanentURI(tokenURI, id);
   }
 
   function setURIBatch(
@@ -95,11 +114,18 @@ contract DropYourENS is ERC1155, ContextMixin, Ownable {
     tokens[id].totalMinted += numToGift;
   }
 
-  function mint(uint256 id, bytes32[] calldata proof) external payable {
-    require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
+  function mint(
+      uint256 id, 
+      bytes32[] calldata proof
+  ) 
+      external 
+      payable 
+      validTokenId(id)
+      canMintToken(id)
+  {
+   // require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
+  // require(tokens[id].totalMinted < tokens[id].totalSupply, "MAX REACHED")
     require(!tokens[id].whitelistClaimed[msg.sender], "ALREADY CLAIMED");
-    require(tokens[id].totalMinted < tokens[id].totalSupply, "MAX REACHED");
-
     if (tokens[id].isWhitelistPeriod) {
       bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
       require(MerkleProof.verify(proof, tokens[id].rootHash, leaf), "INVALID PROOF");
@@ -119,7 +145,7 @@ contract DropYourENS is ERC1155, ContextMixin, Ownable {
   // Maintain flexibility to modify royalties recipient (could also add basis points).
   function _setRoyalties(address newRecipient) internal {
     require(newRecipient != address(0), "INVALID RECIPIENT");
-    _recipient = newRecipient;
+    _royaltyRecipient = newRecipient;
   }
 
   function setRoyalties(address newRecipient) external onlyOwner {
@@ -128,7 +154,7 @@ contract DropYourENS is ERC1155, ContextMixin, Ownable {
 
   // EIP2981 standard royalties return.
   function royaltyInfo(uint256, uint256 _salePrice) external view returns (address receiver, uint256 royaltyAmount) {
-    return (_recipient, (_salePrice * 1000) / 10000);
+    return (_royaltyRecipient, (_salePrice * 1000) / 10000);
   }
 
   function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
