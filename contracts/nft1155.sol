@@ -5,18 +5,22 @@ pragma solidity >=0.8.0;
 import "@rari-capital/solmate/src/tokens/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-import "@openzeppelin/contracts/interfaces/IERC2981.sol";
+//import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 
 import "./contentmixin.sol";
 
-contract DropYourENS is ERC1155, IERC2981, ContextMixin,  Ownable {
+contract DropYourENS is ERC1155, ContextMixin,  Ownable {
   struct token {
     bytes32 rootHash;
     string uri;
-    uint256 salePrice;
+    uint256 publicSalePrice;
+ 
     uint256 totalSupply;
     uint256 totalMinted;
+    uint256 royaltyAmount; //multiply the desired percentage by * 100
     bool isWhitelistPeriod;
+ 
+ 
     mapping(address => bool) whitelistClaimed;
   }
   mapping(uint256 => token) public tokens;
@@ -70,36 +74,40 @@ contract DropYourENS is ERC1155, IERC2981, ContextMixin,  Ownable {
       uint256[] calldata caps,
       uint256[] calldata salePrices,
       bytes32[] calldata rootHashes,
-      string[] calldata uris) external onlyOwner {
-    uint256 idsLength = ids.length;
-    {
-      uint256 capsLength = caps.length;
-      uint256 salePricesLength = salePrices.length;
-      uint256 rootHashesLength = rootHashes.length;
-      uint256 urisLength = uris.length;
-      require(idsLength == capsLength, "LENGTH_MISMATCH");
-      require(capsLength == salePricesLength, "LENGTH_MISMATCH");
-      require(salePricesLength == rootHashesLength, "LENGTH_MISMATCH");
-      require(rootHashesLength == urisLength, "LENGTH_MISMATCH");
-    }
-
-    for (uint256 i = 0; i < idsLength; ) {
-      uint256 id = ids[i];
-      require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
-      tokens[id].totalSupply = caps[i];
-      tokens[id].rootHash = rootHashes[i];
-      tokens[id].salePrice = salePrices[i];
-      tokens[id].uri = uris[i];
-      emit URI(uris[i], id);
-      emit PermanentURI(uris[i], id);
-      unchecked {
-        i++;
+      string[] calldata uris
+  ) 
+      external 
+      onlyOwner 
+  {
+      uint256 idsLength = ids.length;
+      {
+          uint256 capsLength = caps.length;
+          uint256 salePricesLength = salePrices.length;
+          uint256 rootHashesLength = rootHashes.length;
+          uint256 urisLength = uris.length;
+          require(idsLength == capsLength, "LENGTH_MISMATCH");
+          require(capsLength == salePricesLength, "LENGTH_MISMATCH");
+          require(salePricesLength == rootHashesLength, "LENGTH_MISMATCH");
+          require(rootHashesLength == urisLength, "LENGTH_MISMATCH");
       }
-    }
+
+      for (uint256 i = 0; i < idsLength; ) {
+          uint256 id = ids[i];
+          require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
+          tokens[id].totalSupply = caps[i];
+          tokens[id].rootHash = rootHashes[i];
+          tokens[id].salePrice = salePrices[i];
+          tokens[id].uri = uris[i];
+          emit URI(uris[i], id);
+          emit PermanentURI(uris[i], id);
+          unchecked {
+            i++;
+          }
+      }
   }
 
-  function endWhitelistPeriod(uint256 id) external onlyOwner {
-    tokens[id].isWhitelistPeriod = false;
+  function setWhitelistPeriod(uint256 id, bool newWhiteListPeriod) external onlyOwner {
+    tokens[id].isWhitelistPeriod = newWhiteListPeriod;
   }
 
   function gift(uint256 id, address[] calldata addresses) external onlyOwner {
@@ -123,8 +131,6 @@ contract DropYourENS is ERC1155, IERC2981, ContextMixin,  Ownable {
       validTokenId(id)
       canMintToken(id)
   {
-   // require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
-  // require(tokens[id].totalMinted < tokens[id].totalSupply, "MAX REACHED")
     require(!tokens[id].whitelistClaimed[msg.sender], "ALREADY CLAIMED");
     if (tokens[id].isWhitelistPeriod) {
       bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
@@ -153,8 +159,8 @@ contract DropYourENS is ERC1155, IERC2981, ContextMixin,  Ownable {
   }
 
   // EIP2981 standard royalties return.
-  function royaltyInfo(uint256, uint256 _salePrice) external view returns (address receiver, uint256 royaltyAmount) {
-    return (_royaltyRecipient, (_salePrice * 1000) / 10000);
+  function royaltyInfo(uint256 tokenId, uint256 _salePrice) external view returns (address receiver, uint256 royaltyAmount) {
+    return (_royaltyRecipient, (_salePrice * tokens[tokenId].royaltyAmount) / 10000);
   }
 
   function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
