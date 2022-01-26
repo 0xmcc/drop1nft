@@ -23,6 +23,13 @@ contract DropYourENS is ERC1155, ContextMixin, Ownable {
 
   event PermanentURI(string _value, uint256 indexed _id);
   
+  // ============ ACCESS CONTROL/SANITY MODIFIERS ============
+
+  modifier tokenIdExists(uint256 _id) {
+    require(tokens[_id].totalSupply == 0, "TOKEN ID EXISTS");
+    _;
+  }
+
   constructor(address recipient) {
     _recipient = recipient;
   }
