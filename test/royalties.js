@@ -9,7 +9,6 @@ describe("Royalties", function () {
     await dye.deployed();
 
     expect(await dye.owner()).to.equal(owner.address);
-    console.log(await dye.royaltyInfo(0, 0))
     expect((await dye.royaltyInfo(0, 0))[0]).to.equal("0x0000000000000000000000000000000000000001");
 
     const setRoyaltiesTx = await dye.setRoyalties("0x0000000000000000000000000000000000000002");

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: UNLICENSED
+
 pragma solidity >=0.8.0;
 
 import "@rari-capital/solmate/src/tokens/ERC1155.sol";
@@ -9,9 +11,9 @@ import "hardhat/console.sol";
 contract DropYourENS is ERC1155, Ownable {
   mapping(uint256 => string) public uris;
   mapping(uint256 => bytes32) public rootHashes;
-  mapping(address => bool) public whitelistClaimed;
   mapping(uint256 => uint256) public totalSupply;
   mapping(uint256 => uint256) public totalMinted;
+  mapping(uint256 => mapping(address => bool)) public whitelistClaimed;
   address private _recipient;
 
   event PermanentURI(string _value, uint256 indexed _id);
@@ -54,14 +56,14 @@ contract DropYourENS is ERC1155, Ownable {
 
   function mint(uint256 id, bytes32[] calldata proof) external {
     require(bytes(uris[id]).length != 0, "INVALID TOKEN ID"); // double check to make sure
+    require(!whitelistClaimed[id][msg.sender], "ALREADY CLAIMED");
     require(totalMinted[id] < totalSupply[id], "MAX REACHED");
-    require(!whitelistClaimed[msg.sender], "ALREADY CLAIMED");
 
     bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
     require(MerkleProof.verify(proof, rootHashes[id], leaf), "INVALID PROOF");
-    // _mint(msg.sender, id, 1, new bytes(0));
+    _mint(msg.sender, id, 1, new bytes(0));
 
-    // whitelistClaimed[msg.sender] = true;
+    whitelistClaimed[id][msg.sender] = true;
     totalMinted[id] += 1;
   }
 
