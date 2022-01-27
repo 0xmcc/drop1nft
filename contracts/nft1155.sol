@@ -5,24 +5,28 @@ pragma solidity >=0.8.0;
 import "@rari-capital/solmate/src/tokens/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-//import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 
 import "./contentmixin.sol";
 
 contract DropYourENS is ERC1155, ContextMixin,  Ownable {
   struct token {
-    bytes32 rootHash;
+    bytes32 claimMerkleRoot;
+    bytes32 communitySaleMerkleRoot;
+    bool isClaimListActive;
+    bool isCommunitySaleActive;
+    bool isPublicSaleActive;
     string uri;
     uint256 publicSalePrice;
- 
+    uint256 communitySalePrice;
     uint256 totalSupply;
     uint256 totalMinted;
     uint256 royaltyAmount; //multiply the desired percentage by * 100
-    bool isWhitelistPeriod;
+    address _royaltyRecipient;
+
     mapping(address => bool) whitelistClaimed;
   }
   mapping(uint256 => token) public tokens;
-  address private _royaltyRecipient;
+  mapping(uint256 => address) private _royaltyRecipient;
 
   event PermanentURI(string _value, uint256 indexed _id);
   
@@ -36,33 +40,44 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
     require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
     _;
   }
+  modifier maxPerWLValid(uint256 id) {
+    require(tokens[id].totalSupply != 0, "INVALID TOKEN ID"); // double check to make sure
+    _;
+  }
+
   modifier canMintToken(uint256 id) {
     require(tokens[id].totalMinted < tokens[id].totalSupply, "MAX REACHED");
     _;
   }
+  modifier validRoyaltyRecipient(address addr) {
+    require(addr != address(0), "INVALID RECIPIENT");
 
-  constructor(address recipient) {
-    _royaltyRecipient = recipient;
   }
+
+  constructor(address recipient) {  }
 
   function setURI(
         uint256 id, 
         uint256 totalSupply, 
-        bytes32 rootHash, 
-        uint256 salePrice, 
-        string calldata tokenURI
+        bool isClaimListActive,
+        bool isCommunitySaleActive,
+        bool isPublicSaleActive,
+        bytes32 claimMerkleRoot, 
+        bytes32 communitySaleMerkleRoot, 
+        uint256 communitySalePrice, 
+        uint256 publicSalePrice, 
+        string calldata tokenURI,
+        uint256 royaltyAmount, 
+        address royaltyRecipient
   ) 
         external 
         tokenIdDoesNotExist(id)
+        validRoyaltyRecipient(royaltyRecipient)
         onlyOwner 
   {
-       // require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
         require(totalSupply > 0, "NEED AT LEAST ONE TOKEN");
-        tokens[id].totalSupply = totalSupply;
-        tokens[id].rootHash = rootHash;
-        tokens[id].salePrice = salePrice;
-        tokens[id].uri = tokenURI;
-        tokens[id].isWhitelistPeriod = true;
+        _setURI(id, totalSupply, isClaimListActive, isCommunitySaleActive, isPublicSaleActive, claimMerkleRoot, communitySaleMerkleRoot, communitySalePrice, publicSalePrice, tokenURI, royaltyAmount, royaltyRecipient);
+        
         emit URI(tokenURI, id);
         emit PermanentURI(tokenURI, id);
   }
@@ -70,8 +85,15 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
   function setURIBatch(
       uint256[] calldata ids,
       uint256[] calldata caps,
-      uint256[] calldata salePrices,
-      bytes32[] calldata rootHashes,
+      bool[] calldata areClaimsListsActive,
+      bool[] calldata areCommunitySalesActive,
+      bool[] calldata arePublicSalesActive,
+      uint256[] calldata royaltyAmounts,
+      address[] calldata royaltyRecipients,
+      uint256[] calldata communitySalePrices,
+      uint256[] calldata publicSalePrices,
+      bytes32[] calldata claimMerkleRoots,
+      bytes32[] calldata communitySaleMerkleRoots,
       string[] calldata uris
   ) 
       external 
@@ -80,32 +102,50 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
       uint256 idsLength = ids.length;
       {
           uint256 capsLength = caps.length;
-          uint256 salePricesLength = salePrices.length;
-          uint256 rootHashesLength = rootHashes.length;
+          uint256 areClaimsListsActiveLength = areClaimsListsActive.length;
+          uint256 areCommunitySalesActiveLength = areCommunitySalesActive.length;
+          uint256 arePublicSalesActiveLength = arePublicSalesActive.length;
+          uint256 communitySalePricesLength = communitySalePrices.length;
+          uint256 publicSalePricesLength = publicSalePrices.length;
+          uint256 royaltyRecipientsLength = royaltyRecipients.length;
+          uint256 royaltyAmountsLength = royaltyAmounts.length;
+          uint256 claimMerkleRootsLength = claimMerkleRoots.length;
+          uint256 communitySaleMerkleRootsLength = communitySaleMerkleRoots.length;
           uint256 urisLength = uris.length;
-          require(idsLength == capsLength, "LENGTH_MISMATCH");
-          require(capsLength == salePricesLength, "LENGTH_MISMATCH");
-          require(salePricesLength == rootHashesLength, "LENGTH_MISMATCH");
-          require(rootHashesLength == urisLength, "LENGTH_MISMATCH");
+          require(capsLength == idsLength, "LENGTH_MISMATCH");
+          require(capsLength == areClaimsListsActiveLength, "LENGTH_MISMATCH");
+          require(capsLength == areCommunitySalesActiveLength, "LENGTH_MISMATCH");
+          require(capsLength == arePublicSalesActiveLength, "LENGTH_MISMATCH");
+          require(capsLength == communitySalePricesLength, "LENGTH_MISMATCH");
+          require(capsLength == publicSalePricesLength, "LENGTH_MISMATCH");
+          require(capsLength == claimMerkleRootsLength, "LENGTH_MISMATCH");
+          require(capsLength == communitySaleMerkleRootsLength, "LENGTH_MISMATCH");
+          require(capsLength == royaltyAmountsLength, "LENGTH_MISMATCH");
+          require(capsLength == royaltyRecipientsLength, "LENGTH_MISMATCH");
+          require(capsLength == urisLength, "LENGTH_MISMATCH");
       }
-
       for (uint256 i = 0; i < idsLength; ) {
           uint256 id = ids[i];
           require(tokens[id].totalSupply == 0, "TOKEN ID EXISTS");
-          tokens[id].totalSupply = caps[i];
-          tokens[id].rootHash = rootHashes[i];
-          tokens[id].salePrice = salePrices[i];
-          tokens[id].uri = uris[i];
+          require(royaltyRecipients[i] != address(0), "INVALID RECIPIENT");
+          _setURI(ids[i], caps[i], areClaimsListsActive[i], areCommunitySalesActive[i], arePublicSalesActive[i], claimMerkleRoots[i], communitySaleMerkleRoots[i], communitySalePrices[i], publicSalePrices[i], uris[i], royaltyAmounts[i], royaltyRecipients[i]);          
           emit URI(uris[i], id);
           emit PermanentURI(uris[i], id);
           unchecked {
             i++;
           }
       }
+
   }
 
-  function setWhitelistPeriod(uint256 id, bool newWhiteListPeriod) external onlyOwner {
-    tokens[id].isWhitelistPeriod = newWhiteListPeriod;
+  function setClaimlistActive(uint256 id, bool newClaimlistActive) external onlyOwner {
+    tokens[id].isClaimListActive = newClaimlistActive;
+  }
+  function setCommunitySaleActive(uint256 id, bool newCommunitySaleActive) external onlyOwner {
+    tokens[id].isCommunitySaleActive = newCommunitySaleActive;
+  }
+  function setPublicSaleACtive(uint256 id, bool newPublicSaleActive) external onlyOwner {
+    tokens[id].isPublicSaleActive = newPublicSaleActive;
   }
 
   function gift(uint256 id, address[] calldata addresses) external onlyOwner {
@@ -129,11 +169,11 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
       validTokenId(id)
       canMintToken(id)
   {
-    require(!tokens[id].whitelistClaimed[msg.sender], "ALREADY CLAIMED");
-    if (tokens[id].isWhitelistPeriod) {
+    //require(!tokens[id].claimListClaimed[msg.sender], "ALREADY CLAIMED");
+    if (tokens[id].isClaimListActive) {
       bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
-      require(MerkleProof.verify(proof, tokens[id].rootHash, leaf), "INVALID PROOF");
-      tokens[id].whitelistClaimed[msg.sender] = true;
+      require(MerkleProof.verify(proof, tokens[id].claimMerkleRoot, leaf), "INVALID PROOF");
+      tokens[id].claimlistClaimed[msg.sender] = true;
     } else {
       require(msg.value == tokens[id].salePrice, "INCORRECT ETH SENT");
     }
@@ -146,6 +186,39 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
     tokenURI = tokens[id].uri;
   }
 
+   function _setURI(
+        uint256 id, 
+        uint256 totalSupply, 
+        bool isClaimListActive,
+        bool isCommunitySaleActive,
+        bool isPublicSaleActive,
+        bytes32 claimMerkleRoot, 
+        bytes32 communitySaleMerkleRoot, 
+        uint256 communitySalePrice, 
+        uint256 publicSalePrice, 
+        string calldata tokenURI,
+        uint256 royaltyAmount,
+        address royaltyRecipient
+    ) 
+          internal 
+    {
+        tokens[id].totalSupply = totalSupply;
+        tokens[id].isClaimListActive = isClaimListActive;
+        tokens[id].isCommunitySaleActive = isCommunitySaleActive;
+        tokens[id].isPublicSaleActive = isPublicSaleActive;
+        tokens[id].totalSupply = totalSupply;
+        tokens[id].claimMerkleRoot = claimMerkleRoot;
+        tokens[id].communitySaleMerkleRoot = communitySaleMerkleRoot;
+        tokens[id].publicSalePrice = publicSalePrice;
+        tokens[id].communitySalePrice = communitySalePrice;
+        tokens[id].royaltyRecipient = royaltyRecipient;
+        tokens[id].royaltyAmount = royaltyAmount;
+        tokens[id].uri = tokenURI;
+        tokens[id].isClaimListActive = isClaimListActive;
+        tokens[id].isCommunitySaleActive = isCommunitySaleActive;
+        tokens[id].isPublicSaleActive = isPublicSaleActive;
+        tokens[id].claimListClaimed = [];
+    }
   // Maintain flexibility to modify royalties recipient (could also add basis points).
   function _setRoyalties(address newRecipient) internal {
     require(newRecipient != address(0), "INVALID RECIPIENT");
