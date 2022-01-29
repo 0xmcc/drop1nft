@@ -17,7 +17,7 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
     uint256 totalSupply;
     uint256 totalMinted;
   }
-  mapping(address => bool) claimListClaimed; 
+  mapping(address => uint256) claimListClaimed; 
   mapping(uint256 => token) public tokens;
   mapping(uint256 => address) private _royaltyRecipient;
 
@@ -40,7 +40,7 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
     _;
   }
   modifier hasNotClaimedToken() {
-    require(claimListClaimed[msg.sender] != true, "User has already minted token");
+    require(claimListClaimed[msg.sender] == 0, "User has already minted token");
     _;
   }
 
@@ -72,7 +72,6 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
         uint256 totalSupply, 
         bool isClaimListActive,
         bytes32 claimMerkleRoot, 
-        uint256 communitySalePrice, 
         string calldata tokenURI,
         address royaltyRecipient
   ) 
@@ -86,7 +85,7 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
         tokens[id].totalSupply = totalSupply;
         tokens[id].isClaimListActive = isClaimListActive;
         tokens[id].claimMerkleRoot = claimMerkleRoot;
-        tokens[id].communitySalePrice = communitySalePrice;
+        tokens[id].communitySalePrice = 0.0420 ether;
         tokens[id].uri = tokenURI;
         _royaltyRecipient[id] = royaltyRecipient;
         emit URI(tokenURI, id);
@@ -114,7 +113,7 @@ contract DropYourENS is ERC1155, ContextMixin,  Ownable {
 
   {
     if (tokens[id].isClaimListActive) {
-        claimListClaimed[msg.sender] = true;
+        claimListClaimed[msg.sender] = id;
     } else {
       require(msg.value == tokens[id].communitySalePrice, "INCORRECT ETH SENT");
     }
