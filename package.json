@@ -12,7 +12,9 @@
     "merkletreejs": "^0.2.27"
   },
   "dependencies": {
+    "@alch/alchemy-web3": "^1.1.11",
     "@openzeppelin/contracts": "^4.4.2",
-    "@rari-capital/solmate": "^6.2.0"
+    "@rari-capital/solmate": "^6.2.0",
+    "dotenv": "^14.3.2"
   }
 }

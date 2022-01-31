@@ -23,11 +23,11 @@ describe("Mint", function () {
         address royaltyRecipient
   )
   */
-    await dye.setURI(1, addrs.length, true, root, "test uri", "0xF174EeA484A39119CB6C47a24d559ca1A9503ab8");
+    await dye.setURI(1, addrs.length, true, root, "test uri", addrs[0].address);
     expect(await dye.uri(1)).to.equal("test uri");
 
     // test minting twice
-    await expect(dye.setURI(1, addrs.length, true, root, "test uri", "0xF174EeA484A39119CB6C47a24d559ca1A9503ab8")).to.be.revertedWith("TOKEN ID EXISTS");
+    await expect(dye.setURI(1, addrs.length, true, root, "test uri", addrs[0].address)).to.be.revertedWith("TOKEN ID EXISTS");
 
     // test non whitelisted address can't claim
     const invalidProof = [
